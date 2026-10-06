@@ -78,3 +78,7 @@ The tests do not run in Safari. Chromium on Linux does not use ImageIO, so the t
 - The extension finds WebP images by URL. It does not check images whose URL has no WebP sign.
 - CSS background images and `<picture>` sources are not supported yet.
 - While the player runs, the page sees the original `<img>` as hidden, with a size of zero.
+
+## License
+
+WebP Player uses the GNU General Public License version 3, in `LICENSE`. `APP-STORE-EXCEPTION` gives an additional permission under section 7 of the GPL. It allows distribution through Apple's App Store, Mac App Store and TestFlight, on condition that the source code is available to the public at no charge. `CONTRIBUTING.md` says that contributions use the same terms.
