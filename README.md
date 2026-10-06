@@ -37,8 +37,10 @@ You need a Mac with Xcode.
 3. Select the `WebP Player (macOS)` scheme and click Run.
 4. In Safari, open Settings > Advanced and turn on "Show features for web developers".
 5. In Safari Settings > Developer, turn on "Allow unsigned extensions".
-6. In Safari Settings > Extensions, turn on WebP Player. Allow it on all websites.
+6. In Safari Settings > Extensions, turn on WebP Player. Click "Edit Websites…" and set "When visiting other websites" to Allow.
 7. Open a page with an animated WebP image. Move the pointer over the image to see the controls.
+
+If the toolbar popup says that WebP Player has no access to the page, Safari did not give the extension access to that site. Click "Allow on all websites" in the popup, or change the setting in step 6.
 
 Safari turns off "Allow unsigned extensions" each time it quits. Turn it on again after a restart.
 

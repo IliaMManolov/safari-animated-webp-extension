@@ -1,4 +1,9 @@
 const ext = globalThis.browser || globalThis.chrome;
+const ALL_SITES = { origins: ['<all_urls>'] };
+
+function show(id) {
+  for (const section of document.querySelectorAll('section')) section.hidden = section.id !== id;
+}
 
 async function main() {
   const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
@@ -6,16 +11,29 @@ async function main() {
   try {
     host = new URL(tab.url).hostname;
   } catch (err) {
-    // Pages such as the start page have no hostname.
+    // Safari hides the URL of a page that the extension has no access to.
   }
-  const toggle = document.getElementById('toggle');
-  const site = document.getElementById('site');
+
   if (!host) {
-    site.textContent = 'Not available on this page';
-    toggle.disabled = true;
+    const granted = await ext.permissions.contains(ALL_SITES).catch(() => false);
+    if (granted) {
+      show('none');
+      return;
+    }
+    show('access');
+    document.getElementById('allow').addEventListener('click', async () => {
+      const ok = await ext.permissions.request(ALL_SITES).catch(() => false);
+      if (ok) {
+        ext.tabs.reload(tab.id);
+        window.close();
+      }
+    });
     return;
   }
-  site.textContent = host;
+
+  show('main');
+  const toggle = document.getElementById('toggle');
+  document.getElementById('site').textContent = host;
   const key = 'disabled:' + host;
   const stored = await ext.storage.local.get(key);
   toggle.checked = !stored[key];

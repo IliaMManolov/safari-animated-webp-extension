@@ -5,3 +5,5 @@ h1 { font-size: 14px; margin: 0 0 10px; }
 #site { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 input[type=checkbox] { width: 20px; height: 20px; }
 .hint { color: GrayText; margin: 10px 0 0; font-size: 12px; }
+p { margin: 0 0 10px; }
+button { font: inherit; padding: 4px 10px; }
