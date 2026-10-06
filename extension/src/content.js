@@ -14,6 +14,16 @@
   const WEBP_URL = /\.webp($|[?#;&/])|[?&](fm|format|f)=webp\b/i;
 
   let enabled = true;
+  // False after a newer copy of this script took over the page.
+  let active = true;
+  let observer = null;
+  // Safari can run this script a second time in a page that already has
+  // players, for example when the extension reloads or when the page
+  // comes back from the back-forward cache. Each copy keeps its own
+  // state, so each copy would add its own player to every image. DOM
+  // events reach every copy, so the newest copy tells the older ones to
+  // remove their players before it starts.
+  const TAKEOVER = 'webp-player-takeover';
   // Visible in the page's Web Inspector console. Filter by "WebP Player".
   const log = (...args) => console.info('[WebP Player]', ...args);
   const siteKey = WebPSettings.siteKey(location.hostname);
@@ -197,7 +207,7 @@
   }
 
   function watch() {
-    new MutationObserver((mutations) => {
+    observer = new MutationObserver((mutations) => {
       for (const m of mutations) {
         if (m.type === 'attributes') {
           const img = m.target;
@@ -216,7 +226,8 @@
           });
         }
       }
-    }).observe(document.documentElement, {
+    });
+    observer.observe(document.documentElement, {
       subtree: true,
       childList: true,
       attributes: true,
@@ -229,18 +240,27 @@
   }
 
   async function init() {
+    document.dispatchEvent(new CustomEvent(TAKEOVER));
+    document.addEventListener(TAKEOVER, () => {
+      log('a newer copy of the content script took over');
+      active = false;
+      enabled = false;
+      if (observer) observer.disconnect();
+      disableAll();
+    });
     try {
       const stored = await ext.storage.local.get(siteKey);
-      enabled = !stored[siteKey];
+      enabled = active && !stored[siteKey];
     } catch (err) {
-      enabled = true;
+      enabled = active;
     }
     ext.storage.onChanged.addListener((changes, area) => {
-      if (area !== 'local' || !(siteKey in changes)) return;
+      if (!active || area !== 'local' || !(siteKey in changes)) return;
       enabled = !changes[siteKey].newValue;
       if (enabled) scan(document);
       else disableAll();
     });
+    if (!active) return;
     log('running on ' + location.hostname + (enabled ? '' : ' (turned off for this site)'));
     watch();
     scan(document);
