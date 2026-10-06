@@ -11,6 +11,8 @@
   const PAUSE = '❚❚';
 
   let enabled = true;
+  // Visible in the page's Web Inspector console. Filter by "WebP Player".
+  const log = (...args) => console.info('[WebP Player]', ...args);
   const siteKey = 'disabled:' + location.hostname;
 
   // ---- Fetching ----------------------------------------------------------
@@ -19,9 +21,11 @@
     try {
       const res = await fetch(url, { credentials: 'include', cache: 'force-cache' });
       if (res.ok) return new Uint8Array(await res.arrayBuffer());
+      log('page fetch returned HTTP ' + res.status, url);
     } catch (err) {
       // A cross-origin image without CORS headers fails here. The
       // background script has host permissions and can fetch it.
+      log('page fetch failed, asking the background script', String(err));
     }
     return fetchViaBackground(url);
   }
@@ -59,24 +63,29 @@
     const entry = { url };
     STATE.set(img, entry);
 
+    log('checking', url);
     let bytes;
     try {
       bytes = await fetchBytes(url);
     } catch (err) {
-      console.debug('[WebP Player] fetch failed', url, err);
+      log('could not fetch the image', url, err);
       return;
     }
     if (STATE.get(img) !== entry || !enabled) return;
 
-    if (!WebPAnim.isAnimatedWebP(bytes)) return;
+    if (!WebPAnim.isAnimatedWebP(bytes)) {
+      log('not an animated WebP', url);
+      return;
+    }
     let anim;
     try {
       anim = WebPAnim.parseAnimatedWebP(bytes);
     } catch (err) {
-      console.debug('[WebP Player] parse failed', url, err);
+      log('could not parse the image', url, err);
       return;
     }
     if (!anim || anim.frames.length < 2) return;
+    log(`playing ${anim.frames.length} frames at ${anim.width}x${anim.height}`, url);
     mount(img, entry, bytes, anim);
   }
 
@@ -128,7 +137,7 @@
         speedBtn.textContent = player.speed + '×';
       },
       onError(err) {
-        console.debug('[WebP Player] decode failed, showing the original image', err);
+        log('could not decode a frame, showing the original image', err);
         teardown(img);
       },
     });
@@ -274,6 +283,7 @@
       if (enabled) scan(document);
       else disableAll();
     });
+    log('running on ' + location.hostname + (enabled ? '' : ' (turned off for this site)'));
     watch();
     scan(document);
   }
