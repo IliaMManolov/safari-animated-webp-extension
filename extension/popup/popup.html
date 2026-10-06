@@ -7,11 +7,21 @@
 </head>
 <body>
   <h1>WebP Player</h1>
-  <label class="row">
-    <span id="site">This site</span>
-    <input type="checkbox" id="toggle" checked>
-  </label>
-  <p class="hint">When this is off, the site's animated WebP images play with Safari's own decoder.</p>
+  <section id="main" hidden>
+    <label class="row">
+      <span id="site">This site</span>
+      <input type="checkbox" id="toggle" checked>
+    </label>
+    <p class="hint">When this is off, the site's animated WebP images play with Safari's own decoder.</p>
+  </section>
+  <section id="access" hidden>
+    <p>WebP Player has no access to this page, so it cannot replace the images here.</p>
+    <button id="allow">Allow on all websites</button>
+    <p class="hint">You can also allow it in Safari Settings &gt; Extensions &gt; WebP Player &gt; Edit Websites. Reload the page after you allow it.</p>
+  </section>
+  <section id="none" hidden>
+    <p class="hint">Not available on this page.</p>
+  </section>
   <script src="popup.js"></script>
 </body>
 </html>
