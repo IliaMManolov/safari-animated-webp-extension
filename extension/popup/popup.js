@@ -6,7 +6,9 @@ function show(id) {
 }
 
 async function main() {
-  const [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+  // Safari sometimes returns no tab for currentWindow in a popup.
+  let [tab] = await ext.tabs.query({ active: true, currentWindow: true });
+  if (!tab) [tab] = await ext.tabs.query({ active: true, lastFocusedWindow: true });
   let host = '';
   try {
     host = new URL(tab.url).hostname;
