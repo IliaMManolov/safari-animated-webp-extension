@@ -6,7 +6,8 @@
   "license": "GPL-3.0-only",
   "scripts": {
     "fixtures": "python3 test/make-fixture.py test/.fixtures",
-    "test": "npm run fixtures && node --test test/*.test.mjs"
+    "test": "npm run fixtures && node --test test/*.test.mjs",
+    "icons": "node scripts/render-icons.mjs"
   },
   "devDependencies": {
     "playwright": "1.56.1"
