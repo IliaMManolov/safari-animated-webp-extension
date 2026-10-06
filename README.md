@@ -17,10 +17,15 @@ The likely cause is the decoder work for each frame and the memory for all frame
 ## How the extension works
 
 1. The content script finds `<img>` elements with a WebP URL, for example a URL that ends in `.webp`.
-2. It fetches the file and reads the header. If the header has the animation flag, the extension takes over the image.
-3. `src/webp-parser.js` splits the file into frames. It packs each frame as a separate still WebP file.
-4. `src/player.js` decodes each still frame with `createImageBitmap`. The browser decodes these off the main thread. The player then draws the frames on a canvas in order and applies the blend and dispose rules of the WebP format.
-5. The player keeps a decoded frame only until it draws it. It decodes a maximum of 6 frames ahead, at about 3 MB each for the test file.
+2. It starts its own download of the file and reads the header from the first bytes. If the header has no animation flag, it stops the download and leaves the image alone.
+3. `src/webp-parser.js` reads the frames while the file downloads. It packs each frame as a separate still WebP file.
+4. When the first frame is in, the player draws it and replaces the image. The rest of the frames load while the player plays. If playback reaches a frame that is not in yet, the player waits for it.
+5. `src/player.js` decodes each still frame with `createImageBitmap`. The browser decodes these off the main thread. The player then draws the frames on a canvas in order and applies the blend and dispose rules of the WebP format.
+6. The player keeps a decoded frame only until it draws it. It decodes a maximum of 6 frames ahead, at about 3 MB each for the test file.
+
+If Safari is still downloading the original image when the player starts, the extension sets the hidden image's `src` to a blank 1x1 GIF. This stops the second download of the same file. When the extension turns off for the site, it puts the original `src` back.
+
+If the page's CORS rules block the content script's download, `background.js` downloads the file and sends it to the content script in pieces.
 
 The original `<img>` stays in the page, hidden, so the page scripts can still use it. The player sits in the same place, inside the same link. A click on the picture follows the link. A click on the controls does not.
 

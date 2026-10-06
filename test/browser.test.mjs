@@ -12,7 +12,24 @@ let server, base, browser;
 
 before(async () => {
   server = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
+    let path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname));
+    // /slow/... serves the file at about 250 KB/s, to test playback during
+    // a download.
+    if (path.startsWith('/slow/')) {
+      path = path.slice(5);
+      try {
+        const body = await readFile(join(root, path));
+        res.writeHead(200, { 'content-type': types[extname(path)], 'cache-control': 'no-store' });
+        for (let i = 0; i < body.length && !res.destroyed; i += 8 * 1024) {
+          res.write(body.subarray(i, i + 8 * 1024));
+          await new Promise((r) => setTimeout(r, 30));
+        }
+        res.end();
+      } catch {
+        res.writeHead(404).end();
+      }
+      return;
+    }
     try {
       const body = await readFile(join(root, path));
       res.writeHead(200, { 'content-type': types[extname(path)] || 'application/octet-stream' });
@@ -143,4 +160,36 @@ test('content script swaps in the player and leaves other images alone', async (
     return h && h.shadowRoot.querySelector('.label').textContent.endsWith('/ 12');
   });
   assert.equal(await page.evaluate(() => document.querySelectorAll('webp-player').length), 1);
+});
+
+test('playback starts before a slow download ends', async () => {
+  const page = await browser.newPage();
+  await page.goto(base + '/test/pages/site.html?slow');
+  // Point the image at the slow path before the scripts run.
+  await page.evaluate(() => {
+    document.getElementById('img').src = '/slow/test/.fixtures/heavy.webp';
+  });
+  for (const src of ['webp-parser.js', 'player.js', 'content.js']) {
+    await page.addScriptTag({ url: '/extension/src/' + src });
+  }
+  const label = () => page.evaluate(() => {
+    const h = document.querySelector('webp-player');
+    return h ? h.shadowRoot.querySelector('.label').textContent : null;
+  });
+
+  await page.waitForSelector('webp-player');
+  const early = await label();
+  assert.match(early, /\u2026$/, 'the label shows that frames are still loading: ' + early);
+  // Safari's own copy of the download was stopped.
+  assert.match(await page.evaluate(() => document.getElementById('img').getAttribute('src')), /^data:image\/gif/);
+
+  await page.waitForFunction(() => {
+    const t = document.querySelector('webp-player').shadowRoot.querySelector('.label').textContent;
+    return /\/ 40$/.test(t);
+  }, null, { timeout: 15000 });
+
+  // Turning the site off puts the original src back.
+  await page.evaluate(() => window.__storageListener({ ['disabled:' + location.hostname]: { newValue: true } }, 'local'));
+  assert.equal(await page.evaluate(() => document.getElementById('img').getAttribute('src')), '/slow/test/.fixtures/heavy.webp');
+  assert.equal(await page.evaluate(() => document.querySelectorAll('webp-player').length), 0);
 });
