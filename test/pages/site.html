@@ -1,0 +1,20 @@
+<!doctype html>
+<meta charset="utf-8">
+<style>img { border: 0; }</style>
+<script>
+  // Stand-in for the WebExtension API that the content script uses.
+  window.browser = {
+    storage: {
+      local: { get: async () => ({}) },
+      onChanged: { addListener(fn) { window.__storageListener = fn; } },
+    },
+    runtime: { sendMessage: async () => ({ error: 'no background in test' }) },
+  };
+</script>
+<div id="i3">
+  <a href="#navigated">
+    <img id="img" src="/test/.fixtures/heavy.webp" style="height:1024px;width:672px">
+  </a>
+</div>
+<img id="still" src="/test/.fixtures/still.webp" style="width:100px">
+<img id="png" src="/test/.fixtures/heavy-0.png" style="width:100px">

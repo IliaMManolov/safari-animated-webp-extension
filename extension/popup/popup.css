@@ -1,0 +1,7 @@
+:root { color-scheme: light dark; }
+body { margin: 0; padding: 12px 14px; min-width: 240px; font: 13px -apple-system, system-ui, sans-serif; }
+h1 { font-size: 14px; margin: 0 0 10px; }
+.row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+#site { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+input[type=checkbox] { width: 20px; height: 20px; }
+.hint { color: GrayText; margin: 10px 0 0; font-size: 12px; }
