@@ -81,4 +81,4 @@ The tests do not run in Safari. Chromium on Linux does not use ImageIO, so the t
 
 ## License
 
-WebP Player uses the GNU General Public License version 3, in `LICENSE`. `APP-STORE-EXCEPTION` gives an additional permission under section 7 of the GPL. It allows distribution through Apple's App Store, Mac App Store and TestFlight, on condition that the source code is available to the public at no charge. `CONTRIBUTING.md` says that contributions use the same terms.
+WebP Player uses the GNU General Public License version 3, in `LICENSE`. `APP-STORE-EXCEPTION` gives an additional permission under section 7 of the GPL. It allows distribution through Apple's App Store, Mac App Store and TestFlight, on condition that the source code is available to the public at no charge. The wording follows the App Store permission that Signal used for its iOS app. `CONTRIBUTING.md` says that contributions use the same terms.
