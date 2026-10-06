@@ -4,6 +4,7 @@ The icon shows three fanned picture frames. The front frame has a play button an
 
 ## Files
 
+- `AppIcon.icon`: the Icon Composer file for the app on macOS and iOS. It uses the five layers below.
 - `layers/1-frame-back.svg` to `layers/5-seek-bar.svg`: the layers of the app icon, from back to front. Each file is 1024 x 1024 px and has no background and no rounded mask.
 - `toolbar.svg`: the toolbar button. It is a black shape on a transparent background, because Safari colors the toolbar icon itself.
 
@@ -11,7 +12,7 @@ The PNG files in `extension/icons` come from these files. If you change an SVG f
 
 ## Make the app icon in Icon Composer
 
-Xcode 26 uses one Icon Composer file for the iPhone, iPad, Mac and App Store icon. You need a Mac to make it.
+If you change the layers, make `AppIcon.icon` again with these steps. Xcode 26 uses one Icon Composer file for the iPhone, iPad, Mac and App Store icon. You need a Mac to make it.
 
 1. In Xcode, select Xcode > Open Developer Tool > Icon Composer.
 2. Drag the five files from `layers` into the sidebar.
