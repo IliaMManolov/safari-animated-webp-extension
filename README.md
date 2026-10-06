@@ -37,7 +37,7 @@ The toolbar button opens a switch that turns the extension off for the current s
 
 You need a Mac with Xcode.
 
-1. Run `scripts/make-xcode-project.sh` from the repository folder. To use your own bundle ID, set `BUNDLE_ID` first, for example `BUNDLE_ID=com.yourname.webpplayer scripts/make-xcode-project.sh`.
+1. Run `scripts/make-xcode-project.sh` from the repository folder. The bundle ID is `com.imanolov.largewebpplayer`. To use a different bundle ID, set `BUNDLE_ID` first, for example `BUNDLE_ID=com.yourname.webpplayer scripts/make-xcode-project.sh`.
 2. Open `xcode/WebP Player/WebP Player.xcodeproj` in Xcode.
 3. Select the `WebP Player (macOS)` scheme and click Run.
 4. In Safari, open Settings > Advanced and turn on "Show features for web developers".
