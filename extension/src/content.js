@@ -6,6 +6,7 @@
 
   const ext = globalThis.browser || globalThis.chrome;
   const STATE = new WeakMap(); // img -> { url, player?, host?, observer? }
+  const WAITING = new WeakSet(); // imgs with a pending load listener
   const WEBP_URL = /\.webp($|[?#;&/])|[?&](fm|format|f)=webp\b/i;
   const PLAY = '▶';
   const PAUSE = '❚❚';
@@ -59,6 +60,18 @@
     const url = candidateUrl(img);
     const state = STATE.get(img);
     if (!url || (state && state.url === url)) return;
+    // Wait until Safari has the whole file. The fetch below then reads it
+    // from the cache, and does not download the file a second time.
+    if (!img.complete) {
+      if (!WAITING.has(img)) {
+        WAITING.add(img);
+        img.addEventListener('load', () => {
+          WAITING.delete(img);
+          inspect(img);
+        }, { once: true });
+      }
+      return;
+    }
     teardown(img);
     const entry = { url };
     STATE.set(img, entry);
@@ -172,16 +185,20 @@
     const observer = new IntersectionObserver((entries) => {
       for (const e of entries) player.setVisible(e.isIntersecting);
     });
-    observer.observe(host);
-
-    img.before(host);
-    img.dataset.webpPlayerHidden = '';
-    img.style.setProperty('display', 'none', 'important');
-
     entry.player = player;
-    entry.host = host;
     entry.observer = observer;
-    player.start();
+
+    // Draw the first frame before the swap. The original image stays on
+    // screen until then, so the page never shows an empty canvas.
+    player.seek(0).then(() => {
+      if (STATE.get(img) !== entry || player.destroyed) return;
+      img.before(host);
+      img.dataset.webpPlayerHidden = '';
+      img.style.setProperty('display', 'none', 'important');
+      entry.host = host;
+      observer.observe(host);
+      player.play();
+    });
   }
 
   function teardown(img) {
