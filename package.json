@@ -1,0 +1,14 @@
+{
+  "name": "safari-animated-webp-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Safari web extension that plays heavy animated WebP images on a canvas with player controls.",
+  "license": "GPL-3.0-only",
+  "scripts": {
+    "fixtures": "python3 test/make-fixture.py test/.fixtures",
+    "test": "npm run fixtures && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.56.1"
+  }
+}

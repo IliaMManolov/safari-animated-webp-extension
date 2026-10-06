@@ -1,0 +1,54 @@
+<!doctype html>
+<meta charset="utf-8">
+<script src="/extension/src/webp-parser.js"></script>
+<script src="/extension/src/player.js"></script>
+<script>
+  // Decodes frame k with the player and compares it to a reference PNG
+  // from libwebp. Returns the largest and the mean channel difference.
+  async function pixels(source, w, h) {
+    const c = new OffscreenCanvas(w, h);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(source, 0, 0);
+    return ctx.getImageData(0, 0, w, h).data;
+  }
+
+  async function load(name) {
+    const bytes = new Uint8Array(await (await fetch('/test/.fixtures/' + name + '.webp')).arrayBuffer());
+    const anim = WebPAnim.parseAnimatedWebP(bytes);
+    const canvas = document.createElement('canvas');
+    document.body.append(canvas);
+    return new AnimatedWebPPlayer(canvas, bytes, anim);
+  }
+
+  async function compare(player, name, k) {
+    await player.seek(k);
+    const { width: w, height: h } = player.anim;
+    const ref = await createImageBitmap(await (await fetch(`/test/.fixtures/${name}-${k}.png`)).blob());
+    const a = await pixels(player.canvas, w, h);
+    const b = await pixels(ref, w, h);
+    let max = 0, sum = 0;
+    for (let i = 0; i < a.length; i++) {
+      const d = Math.abs(a[i] - b[i]);
+      if (d > max) max = d;
+      sum += d;
+    }
+    return { k, current: player.current, max, mean: sum / a.length };
+  }
+
+  async function checkOrder(name, order) {
+    const player = await load(name);
+    const out = [];
+    for (const k of order) out.push(await compare(player, name, k));
+    player.destroy();
+    return out;
+  }
+
+  async function timeSequential(name) {
+    const player = await load(name);
+    const t0 = performance.now();
+    await player.seek(player.frameCount - 1);
+    const ms = performance.now() - t0;
+    player.destroy();
+    return ms / player.frameCount;
+  }
+</script>
