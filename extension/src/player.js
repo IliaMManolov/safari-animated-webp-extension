@@ -2,6 +2,11 @@
 // The browser decodes each frame as a still image off the main thread
 // (createImageBitmap). The player composites the frames in order, so each
 // frame is decoded once and only a few decoded frames exist at a time.
+//
+// Each frame's still WebP is built once and kept, because the player
+// decodes every frame again on every loop. A new Blob for each decode
+// gave Safari about 30 new Blobs a second per player to free, and Safari
+// frees Blob memory only when garbage collection runs.
 (function (root) {
   'use strict';
 
@@ -41,6 +46,9 @@
       this.seekToken = 0;
       // frame index -> { promise, bitmap }. bitmap is null until decoded.
       this.decodes = new Map();
+      // frame index -> the frame as a still WebP Blob. Built once per frame.
+      this.blobs = [];
+      this.blobCount = 0;
       this.tick = this.tick.bind(this);
     }
 
@@ -91,6 +99,7 @@
       this.pause();
       this.releaseAll();
       this.buffer = null;
+      this.blobs = [];
     }
 
     schedule() {
@@ -123,8 +132,7 @@
       let slot = this.decodes.get(index);
       if (!slot) {
         slot = { promise: null, bitmap: null };
-        const blob = WebPAnim.frameToBlob(this.buffer, this.frames[index]);
-        slot.promise = createImageBitmap(blob).then((bitmap) => {
+        slot.promise = createImageBitmap(this.frameBlob(index)).then((bitmap) => {
           if (this.decodes.get(index) !== slot) {
             bitmap.close();
             return null;
@@ -136,6 +144,20 @@
         this.decodes.set(index, slot);
       }
       return slot.promise;
+    }
+
+    // The still WebP for frame `index`. When every frame has one and the
+    // download is over, the player lets go of the file bytes, because the
+    // Blobs hold the same bytes.
+    frameBlob(index) {
+      let blob = this.blobs[index];
+      if (!blob) {
+        blob = WebPAnim.frameToBlob(this.buffer, this.frames[index]);
+        this.blobs[index] = blob;
+        this.blobCount++;
+      }
+      if (this.buffer && this.anim.complete && this.blobCount === this.frames.length) this.buffer = null;
+      return blob;
     }
 
     release(index) {

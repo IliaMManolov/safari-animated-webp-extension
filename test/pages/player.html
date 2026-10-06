@@ -65,6 +65,26 @@
     return out;
   }
 
+  // Plays two loops fast and counts the still WebPs that the player built.
+  async function blobsOverTwoLoops(name) {
+    const bytes = new Uint8Array(await (await fetch('/test/.fixtures/' + name + '.webp')).arrayBuffer());
+    const anim = WebPAnim.parseAnimatedWebP(bytes);
+    const build = WebPAnim.frameToBlob;
+    let built = 0;
+    WebPAnim.frameToBlob = (...args) => { built++; return build(...args); };
+    const player = new AnimatedWebPPlayer(document.createElement('canvas'), bytes, anim);
+    await player.seek(0);
+    player.setSpeed(8);
+    player.play();
+    await new Promise((resolve) => {
+      player.onFrame = () => { if (player.loopsDone >= 2) resolve(); };
+    });
+    const out = { frames: anim.frames.length, built, bufferFreed: player.buffer === null, decodes: player.decodes.size };
+    player.destroy();
+    WebPAnim.frameToBlob = build;
+    return out;
+  }
+
   async function timeSequential(name) {
     const player = await load(name);
     const t0 = performance.now();
