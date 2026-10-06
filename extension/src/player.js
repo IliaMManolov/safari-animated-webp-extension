@@ -40,7 +40,6 @@
       this.seekToken = 0;
       this.decodes = new Map(); // frame index -> Promise<ImageBitmap>
       this.ready = new Map(); // frame index -> ImageBitmap
-      this.totalDuration = this.frames.reduce((t, f) => t + frameDuration(f), 0);
       this.tick = this.tick.bind(this);
     }
 
@@ -111,8 +110,12 @@
       }
     }
 
+    // Returns the frame after i, or -1 while that frame is still
+    // downloading. anim.frames grows while the file downloads, and
+    // anim.complete turns true at the end.
     nextIndex(i) {
-      return (i + 1) % this.frames.length;
+      if (i + 1 < this.frames.length) return i + 1;
+      return this.anim.complete ? 0 : -1;
     }
 
     decode(index) {
@@ -149,6 +152,7 @@
       let i = this.current;
       for (let n = 0; n < Math.min(DECODE_AHEAD, this.frames.length - 1); n++) {
         i = this.nextIndex(i);
+        if (i < 0) break;
         this.decode(i);
       }
     }
@@ -187,6 +191,11 @@
       // each frame builds on the one before.
       while (now >= this.nextDue) {
         const next = this.nextIndex(this.current);
+        // The next frame is still downloading. Wait for it.
+        if (next < 0) {
+          this.nextDue = now;
+          break;
+        }
         const wraps = next === 0 && this.current >= 0;
         if (wraps && this.anim.loopCount > 0 && this.loopsDone + 1 >= this.anim.loopCount) {
           this.loopsDone++;
@@ -214,6 +223,7 @@
     // Shows frame `target`. Decodes from the nearest key frame at or
     // before the target, because later frames depend on earlier ones.
     async seek(target) {
+      target = Math.max(0, Math.min(target, this.frames.length - 1));
       const token = ++this.seekToken;
       const wasPlaying = this.playing;
       this.pause();

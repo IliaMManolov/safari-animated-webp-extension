@@ -53,3 +53,38 @@ test('builds a valid RIFF container for a frame', async () => {
     assert.equal(String.fromCharCode(...out.subarray(8, 12)), 'WEBP');
   }
 });
+
+test('stream parser yields frames as the bytes arrive', () => {
+  const bytes = fixture('heavy.webp');
+  const whole = WebPAnim.parseAnimatedWebP(bytes);
+  const parser = new WebPAnim.StreamParser();
+  const counts = [];
+  // Uneven piece sizes, including pieces smaller than the header.
+  for (let offset = 0, i = 0; offset < bytes.length; i++) {
+    const size = [7, 5, 3000, 40000, 123457][i % 5];
+    parser.push(bytes.subarray(offset, offset + size));
+    counts.push(parser.anim.frames.length);
+    offset += size;
+  }
+  assert.equal(parser.status, 'animated');
+  assert.equal(parser.finish(), true);
+  assert.ok(counts.some((n) => n > 0 && n < 40), 'frames should appear before the end');
+  assert.deepEqual(
+    parser.anim.frames.map(({ x, y, width, height, keyFrame, blend }) => ({ x, y, width, height, keyFrame, blend })),
+    whole.frames.map(({ x, y, width, height, keyFrame, blend }) => ({ x, y, width, height, keyFrame, blend })),
+  );
+});
+
+test('stream parser stops early for a still image', () => {
+  const parser = new WebPAnim.StreamParser();
+  parser.push(fixture('still.webp').subarray(0, 64));
+  assert.equal(parser.status, 'not-animated');
+});
+
+test('stream parser reports a cut-off download', () => {
+  const bytes = fixture('heavy.webp');
+  const parser = new WebPAnim.StreamParser();
+  parser.push(bytes.subarray(0, bytes.length >> 1));
+  assert.equal(parser.finish(), false);
+  assert.ok(parser.anim.frames.length > 0 && parser.anim.complete);
+});
