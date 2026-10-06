@@ -253,3 +253,21 @@ test('on a touch screen the controls open from the corner button', async () => {
   assert.deepEqual(await bars(), [false, false]);
   await context.close();
 });
+
+test('a second copy of the content script does not add a second player', async () => {
+  const page = await browser.newPage();
+  await page.goto(base + '/test/pages/site.html');
+  for (const src of ['settings.js', 'webp-parser.js', 'player.js', 'view.js', 'content.js']) {
+    await page.addScriptTag({ url: '/extension/src/' + src });
+  }
+  await page.waitForSelector('webp-player');
+  // Safari can run the content script again in a page that already has
+  // players, for example after the extension reloads.
+  await page.addScriptTag({ url: '/extension/src/content.js?again' });
+  await page.waitForTimeout(1000);
+  assert.equal(await page.evaluate(() => document.querySelectorAll('webp-player').length), 1);
+  const label = () => page.evaluate(() => document.querySelector('webp-player').shadowRoot.querySelector('.label').textContent);
+  const first = await label();
+  await page.waitForTimeout(400);
+  assert.notEqual(await label(), first, 'the remaining player plays');
+});
