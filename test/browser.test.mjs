@@ -73,10 +73,28 @@ test('reports decode time per frame', async () => {
 test('content script swaps in the player and leaves other images alone', async () => {
   const page = await browser.newPage();
   await page.goto(base + '/test/pages/site.html');
+  // Read the canvas at the moment the player enters the page.
+  await page.evaluate(() => {
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const n of r.addedNodes) {
+          if (n.tagName === 'WEBP-PLAYER' && !window.__pixelAtInsert) {
+            const canvas = n.shadowRoot.querySelector('canvas');
+            window.__pixelAtInsert = Array.from(canvas.getContext('2d').getImageData(336, 512, 1, 1).data);
+          }
+        }
+      }
+    }).observe(document.body, { subtree: true, childList: true });
+  });
   for (const src of ['webp-parser.js', 'player.js', 'content.js']) {
     await page.addScriptTag({ url: '/extension/src/' + src });
   }
   await page.waitForSelector('webp-player');
+
+  // The player is inserted only after it drew the first frame, so the
+  // canvas is never empty on screen.
+  const centre = await page.evaluate(() => window.__pixelAtInsert);
+  assert.equal(centre[3], 255, 'first frame not drawn when the player appeared');
 
   const state = await page.evaluate(() => {
     const host = document.querySelector('webp-player');
