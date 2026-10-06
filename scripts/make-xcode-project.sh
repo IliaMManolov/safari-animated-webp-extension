@@ -8,7 +8,7 @@ cd "$(dirname "$0")/.."
 xcrun safari-web-extension-converter extension \
   --project-location xcode \
   --app-name "WebP Player" \
-  --bundle-identifier "${BUNDLE_ID:-com.example.webpplayer}" \
+  --bundle-identifier "${BUNDLE_ID:-com.imanolov.largewebpplayer}" \
   --swift \
   --no-open \
   --force
