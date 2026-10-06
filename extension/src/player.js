@@ -32,31 +32,23 @@
       this.playing = false;
       this.destroyed = false;
       this.visible = true;
+      this.seeking = false; // A seek owns the canvas. Ticks wait for it.
       this.current = -1; // Index of the frame shown on the canvas.
       this.pendingDispose = null; // Frame to clear before drawing the next one.
       this.loopsDone = 0;
       this.nextDue = 0;
       this.rafId = 0;
       this.seekToken = 0;
-      this.decodes = new Map(); // frame index -> Promise<ImageBitmap>
-      this.ready = new Map(); // frame index -> ImageBitmap
+      // frame index -> { promise, bitmap }. bitmap is null until decoded.
+      this.decodes = new Map();
       this.tick = this.tick.bind(this);
-    }
-
-    get frameCount() {
-      return this.frames.length;
-    }
-
-    async start() {
-      await this.seek(0);
-      this.play();
     }
 
     play() {
       if (this.destroyed || this.playing) return;
       if (this.anim.loopCount > 0 && this.loopsDone >= this.anim.loopCount) this.loopsDone = 0;
       this.playing = true;
-      this.nextDue = performance.now() + frameDuration(this.frames[Math.max(this.current, 0)]) / this.speed;
+      this.restartClock();
       this.schedule();
       this.onStateChange();
     }
@@ -64,8 +56,7 @@
     pause() {
       if (!this.playing) return;
       this.playing = false;
-      cancelAnimationFrame(this.rafId);
-      this.rafId = 0;
+      this.unschedule();
       this.onStateChange();
     }
 
@@ -98,16 +89,24 @@
     destroy() {
       this.destroyed = true;
       this.pause();
-      for (const bitmap of this.ready.values()) bitmap.close();
-      this.ready.clear();
-      this.decodes.clear();
+      this.releaseAll();
       this.buffer = null;
     }
 
     schedule() {
-      if (!this.rafId && this.playing && this.visible && !this.destroyed) {
+      if (!this.rafId && this.playing && this.visible && !this.seeking && !this.destroyed) {
         this.rafId = requestAnimationFrame(this.tick);
       }
+    }
+
+    unschedule() {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = 0;
+    }
+
+    // The frame on the canvas starts its full duration from now.
+    restartClock() {
+      this.nextDue = performance.now() + frameDuration(this.frames[Math.max(this.current, 0)]) / this.speed;
     }
 
     // Returns the frame after i, or -1 while that frame is still
@@ -118,28 +117,30 @@
       return this.anim.complete ? 0 : -1;
     }
 
+    // Starts decoding frame `index` once. Resolves to the bitmap, or to
+    // null when the frame was released before the decode finished.
     decode(index) {
-      let promise = this.decodes.get(index);
-      if (!promise) {
+      let slot = this.decodes.get(index);
+      if (!slot) {
+        slot = { promise: null, bitmap: null };
         const blob = WebPAnim.frameToBlob(this.buffer, this.frames[index]);
-        promise = createImageBitmap(blob).then((bitmap) => {
-          if (this.destroyed || this.decodes.get(index) !== promise) {
+        slot.promise = createImageBitmap(blob).then((bitmap) => {
+          if (this.decodes.get(index) !== slot) {
             bitmap.close();
             return null;
           }
-          this.ready.set(index, bitmap);
+          slot.bitmap = bitmap;
           return bitmap;
         });
-        promise.catch((err) => this.fail(err));
-        this.decodes.set(index, promise);
+        slot.promise.catch((err) => this.fail(err));
+        this.decodes.set(index, slot);
       }
-      return promise;
+      return slot.promise;
     }
 
     release(index) {
-      const bitmap = this.ready.get(index);
-      if (bitmap) bitmap.close();
-      this.ready.delete(index);
+      const slot = this.decodes.get(index);
+      if (slot && slot.bitmap) slot.bitmap.close();
       this.decodes.delete(index);
     }
 
@@ -147,9 +148,9 @@
       for (const index of [...this.decodes.keys()]) this.release(index);
     }
 
-    // Starts decodes for the frames after the current one.
-    prefetch() {
-      let i = this.current;
+    // Starts decodes for the frames after `from`.
+    prefetch(from = this.current) {
+      let i = from;
       for (let n = 0; n < Math.min(DECODE_AHEAD, this.frames.length - 1); n++) {
         i = this.nextIndex(i);
         if (i < 0) break;
@@ -202,7 +203,8 @@
           this.pause();
           break;
         }
-        const bitmap = this.ready.get(next);
+        const slot = this.decodes.get(next);
+        const bitmap = slot && slot.bitmap;
         if (!bitmap) {
           this.decode(next);
           break;
@@ -220,27 +222,23 @@
       this.schedule();
     }
 
-    // Shows frame `target`. Decodes from the nearest key frame at or
-    // before the target, because later frames depend on earlier ones.
+    // Shows frame `target`. Playback keeps its play or pause state and
+    // continues from the target. A newer seek replaces an older one.
     async seek(target) {
       target = Math.max(0, Math.min(target, this.frames.length - 1));
       const token = ++this.seekToken;
-      const wasPlaying = this.playing;
-      this.pause();
+      this.seeking = true;
+      this.unschedule();
 
-      let start = target;
-      if (this.current >= 0 && this.current <= target && target - this.current <= target - this.keyFrameBefore(target)) {
-        start = this.current + 1;
-      } else {
-        start = this.keyFrameBefore(target);
+      const start = this.seekStart(target);
+      if (start !== this.current + 1) {
         this.releaseAll();
         this.pendingDispose = null;
       }
 
       try {
         for (let i = start; i <= target; i++) {
-          // Keep a small window of decodes running ahead of the composite.
-          for (let j = i; j <= Math.min(target, i + DECODE_AHEAD); j++) this.decode(j);
+          this.prefetch(i - 1);
           const bitmap = await this.decode(i);
           if (token !== this.seekToken || this.destroyed || !bitmap) return;
           this.composite(i, bitmap);
@@ -250,17 +248,24 @@
         return;
       }
 
+      this.seeking = false;
       this.onFrame(this.current);
       this.prefetch();
-      if (wasPlaying) this.play();
+      this.restartClock();
+      this.schedule();
     }
 
-    keyFrameBefore(index) {
-      for (let i = index; i > 0; i--) if (this.frames[i].keyFrame) return i;
-      return 0;
+    // The first frame to composite for a seek to `target`. Each frame
+    // builds on the one before, so that is the frame after the current
+    // one, or the nearest key frame at or before the target if that is
+    // less work.
+    seekStart(target) {
+      let key = target;
+      while (key > 0 && !this.frames[key].keyFrame) key--;
+      const fromCurrent = this.current >= 0 && this.current <= target;
+      return fromCurrent && this.current + 1 > key ? this.current + 1 : key;
     }
   }
 
-  AnimatedWebPPlayer.SPEEDS = SPEEDS;
   root.AnimatedWebPPlayer = AnimatedWebPPlayer;
 })(globalThis);

@@ -43,12 +43,34 @@
     return out;
   }
 
+  // Two quick seeks while playing. The second replaces the first.
+  // Returns what a user would see afterwards.
+  async function seekWhilePlaying(name) {
+    const bytes = new Uint8Array(await (await fetch('/test/.fixtures/' + name + '.webp')).arrayBuffer());
+    const anim = WebPAnim.parseAnimatedWebP(bytes);
+    let stateChanges = 0;
+    const player = new AnimatedWebPPlayer(document.createElement('canvas'), bytes, anim, {
+      onStateChange: () => stateChanges++,
+    });
+    await player.seek(0);
+    player.play();
+    const before = stateChanges;
+    const first = player.seek(30);
+    await player.seek(10);
+    await first;
+    const landed = player.current;
+    await new Promise((r) => setTimeout(r, 300));
+    const out = { landed, playing: player.playing, advanced: player.current !== landed, stateChanges: stateChanges - before };
+    player.destroy();
+    return out;
+  }
+
   async function timeSequential(name) {
     const player = await load(name);
     const t0 = performance.now();
-    await player.seek(player.frameCount - 1);
+    await player.seek(player.frames.length - 1);
     const ms = performance.now() - t0;
     player.destroy();
-    return ms / player.frameCount;
+    return ms / player.frames.length;
   }
 </script>

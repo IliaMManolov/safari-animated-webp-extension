@@ -5,20 +5,18 @@
   'use strict';
 
   const ext = globalThis.browser || globalThis.chrome;
-  const STATE = new WeakMap(); // img -> { url, player?, host?, observer? }
+  const STATE = new WeakMap(); // img -> { url, view?, override? }
   // src values that the extension itself set. The observer skips them.
   const OWN_SRC = new WeakMap(); // img -> src
   // A 1x1 transparent GIF. It replaces the src of a hidden image that is
   // still downloading, so Safari stops its own copy of the download.
   const BLANK = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   const WEBP_URL = /\.webp($|[?#;&/])|[?&](fm|format|f)=webp\b/i;
-  const PLAY = '▶';
-  const PAUSE = '❚❚';
 
   let enabled = true;
   // Visible in the page's Web Inspector console. Filter by "WebP Player".
   const log = (...args) => console.info('[WebP Player]', ...args);
-  const siteKey = 'disabled:' + location.hostname;
+  const siteKey = WebPSettings.siteKey(location.hostname);
 
   // ---- Fetching ----------------------------------------------------------
 
@@ -52,23 +50,38 @@
     yield* streamViaBackground(url);
   }
 
+  // The background script sends the file over a port, one message per
+  // piece: { data } in base64, then { done } or { error }. Closing the
+  // port cancels the download.
   async function* streamViaBackground(url) {
-    const head = await ext.runtime.sendMessage({ type: 'open', url });
-    if (!head || head.error) throw new Error(head ? head.error : 'No response from background');
-    let done = false;
+    const port = ext.runtime.connect({ name: 'download' });
+    const inbox = [];
+    let wake = null;
+    const deliver = (msg) => {
+      inbox.push(msg);
+      if (wake) wake();
+    };
+    port.onMessage.addListener(deliver);
+    port.onDisconnect.addListener(() => deliver({ error: 'The background script closed the download' }));
+    port.postMessage({ url });
     try {
-      while (!done) {
-        const part = await ext.runtime.sendMessage({ type: 'read', id: head.id });
-        if (!part || part.error) throw new Error(part ? part.error : 'Missing data from background');
-        done = part.done;
-        const bin = atob(part.data);
-        const out = new Uint8Array(bin.length);
-        for (let j = 0; j < bin.length; j++) out[j] = bin.charCodeAt(j);
-        if (out.length) yield out;
+      for (;;) {
+        while (!inbox.length) await new Promise((resolve) => { wake = resolve; });
+        const msg = inbox.shift();
+        if (msg.error) throw new Error(msg.error);
+        if (msg.done) return;
+        yield fromBase64(msg.data);
       }
     } finally {
-      if (!done) ext.runtime.sendMessage({ type: 'release', id: head.id });
+      port.disconnect();
     }
+  }
+
+  function fromBase64(text) {
+    const bin = atob(text);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
   }
 
   // ---- Detection ---------------------------------------------------------
@@ -96,244 +109,91 @@
     try {
       for await (const piece of streamBytes(url)) {
         if (STATE.get(img) !== entry || !enabled) return;
-        const added = parser.push(piece);
+        parser.push(piece);
         if (parser.status === 'not-animated') {
           log('not an animated WebP', url);
           return;
         }
-        if (!entry.player && parser.anim.frames.length) {
+        if (entry.view) {
+          entry.view.setProgress(parser.progress);
+        } else if (parser.anim.frames.length) {
           log(`playing while the file downloads (${parser.anim.width}x${parser.anim.height})`, url);
-          mount(img, entry, parser.buffer, parser.anim);
-        } else if (entry.update) {
-          entry.update(parser.length / parser.riffEnd);
+          mount(img, entry, parser);
         }
       }
     } catch (err) {
       log('download or parse stopped early', url, err);
-      if (!entry.player) return;
     }
-    if (STATE.get(img) !== entry) return;
+    if (STATE.get(img) !== entry || !entry.view) return;
     const whole = parser.finish();
-    const frames = parser.anim.frames.length;
-    if (parser.status !== 'animated' || !frames) return;
-    log(`downloaded ${frames} frames` + (whole ? '' : ' (file incomplete, playing what arrived)'), url);
-    if (!entry.player && frames > 1) mount(img, entry, parser.buffer, parser.anim);
-    else if (entry.update) entry.update(1);
+    log(`downloaded ${parser.anim.frames.length} frames` + (whole ? '' : ' (file incomplete, playing what arrived)'), url);
+    entry.view.setProgress(1);
   }
 
-  // ---- Player UI ---------------------------------------------------------
-
-  function mount(img, entry, bytes, anim) {
-    const rect = img.getBoundingClientRect();
-    const cs = getComputedStyle(img);
-    // While the image downloads, its box can still be empty. Fill a
-    // missing side from the animation's own aspect ratio.
-    let width = rect.width || parseFloat(cs.width) || 0;
-    let height = rect.height || parseFloat(cs.height) || 0;
-    if (!width && !height) {
-      width = anim.width;
-      height = anim.height;
-    } else if (!height) {
-      height = width * anim.height / anim.width;
-    } else if (!width) {
-      width = height * anim.width / anim.height;
-    }
-
-    const host = document.createElement('webp-player');
-    host.style.cssText = [
-      'display:' + (cs.display === 'block' ? 'block' : 'inline-block'),
-      'position:relative',
-      'width:' + width + 'px',
-      'max-width:100%',
-      'aspect-ratio:' + width + ' / ' + height,
-      'height:auto',
-      'margin:' + cs.margin,
-      'vertical-align:' + cs.verticalAlign,
-      'float:' + cs.cssFloat,
-      'line-height:0',
-    ].join(';');
-    if (img.title) host.title = img.title;
-    if (img.alt) {
-      host.setAttribute('role', 'img');
-      host.setAttribute('aria-label', img.alt);
-    }
-
-    const shadow = host.attachShadow({ mode: 'open' });
-    shadow.innerHTML = PLAYER_HTML;
-    const canvas = shadow.querySelector('canvas');
-    const bar = shadow.querySelector('.bar');
-    const playBtn = shadow.querySelector('.play');
-    const scrub = shadow.querySelector('.scrub');
-    const speedBtn = shadow.querySelector('.speed');
-    const label = shadow.querySelector('.label');
-    const loading = shadow.querySelector('.loading');
-    const fill = shadow.querySelector('.fill');
-    let progress = 0;
-
-    // While the file downloads, the frame count still grows. The scrub
-    // bar stays off and the label shows the download progress instead.
-    const showLabel = (index) => {
-      label.textContent = anim.complete
-        ? (index + 1) + ' / ' + anim.frames.length
-        : 'Loading ' + Math.floor(progress * 100) + '%';
-    };
-    const player = new AnimatedWebPPlayer(canvas, bytes, anim, {
-      onFrame(index) {
-        if (!scrubbing) scrub.value = String(index);
-        showLabel(index);
-      },
-      onStateChange() {
-        playBtn.textContent = player.playing ? PAUSE : PLAY;
-        playBtn.setAttribute('aria-label', player.playing ? 'Pause' : 'Play');
-        speedBtn.textContent = player.speed + '×';
-      },
-      onError(err) {
-        log('could not decode a frame, showing the original image', err);
-        teardown(img);
-      },
+  function mount(img, entry, parser) {
+    entry.view = new PlayerView(img, parser.buffer, parser.anim, (err) => {
+      log('could not decode a frame, showing the original image', err);
+      teardown(img);
     });
-
-    // The player sits inside the page's links. Stop clicks on the controls
-    // from reaching them.
-    for (const type of ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'dblclick']) {
-      bar.addEventListener(type, (e) => {
-        e.stopPropagation();
-        if (type === 'click' || type === 'dblclick') e.preventDefault();
-      });
-    }
-    playBtn.addEventListener('click', () => player.toggle());
-    speedBtn.addEventListener('click', () => player.cycleSpeed());
-
-    let scrubbing = false;
-    let wasPlaying = false;
-    scrub.addEventListener('pointerdown', () => {
-      scrubbing = true;
-      wasPlaying = player.playing;
-      player.pause();
+    entry.view.attach().then((attached) => {
+      if (attached) entry.override = new ImageOverride(img);
     });
-    scrub.addEventListener('input', () => player.seek(Number(scrub.value)));
-    const endScrub = () => {
-      if (!scrubbing) return;
-      scrubbing = false;
-      if (wasPlaying) player.play();
-    };
-    scrub.addEventListener('change', endScrub);
-    scrub.addEventListener('pointerup', endScrub);
+  }
 
-    const observer = new IntersectionObserver((entries) => {
-      for (const e of entries) player.setVisible(e.isIntersecting);
-    });
-    entry.player = player;
-    entry.observer = observer;
-    // Called while the file downloads, with the share of bytes received.
-    entry.update = (fraction) => {
-      progress = fraction;
-      fill.style.transform = 'scaleX(' + fraction + ')';
-      if (anim.complete) {
-        scrub.max = String(anim.frames.length - 1);
-        scrub.value = String(Math.max(player.current, 0));
-        scrub.disabled = false;
-        loading.classList.add('done');
-      }
-      showLabel(Math.max(player.current, 0));
-    };
-    entry.update(0);
+  function teardown(img) {
+    const entry = STATE.get(img);
+    if (!entry) return;
+    STATE.delete(img);
+    if (entry.override) entry.override.restore();
+    if (entry.view) entry.view.destroy();
+  }
 
-    // Draw the first frame before the swap. The original image stays on
-    // screen until then, so the page never shows an empty canvas.
-    player.seek(0).then(() => {
-      if (STATE.get(img) !== entry || player.destroyed) return;
-      img.before(host);
-      img.dataset.webpPlayerHidden = '';
+  // ---- The hidden original image -----------------------------------------
+
+  // Hides the original image while the player stands in for it. The
+  // extension has its own copy of the file, so if Safari is still
+  // downloading the image, this also stops that second download.
+  class ImageOverride {
+    constructor(img) {
+      this.img = img;
+      this.saved = null; // The src and srcset that the blank replaced.
       img.style.setProperty('display', 'none', 'important');
-      entry.host = host;
-      observer.observe(host);
-      player.play();
-      // The extension has its own copy of the file now. If Safari is still
-      // downloading the image, stop that second download.
       if (!img.complete) {
-        entry.savedSrc = img.getAttribute('src');
-        entry.savedSrcset = img.getAttribute('srcset');
+        this.saved = { src: img.getAttribute('src'), srcset: img.getAttribute('srcset') };
         OWN_SRC.set(img, BLANK);
         img.removeAttribute('srcset');
         img.setAttribute('src', BLANK);
       }
-    });
-  }
-
-  // restoreSrc puts back an src that the extension replaced. It is false
-  // when the page itself changed the src or removed the image.
-  function teardown(img, restoreSrc = true) {
-    const entry = STATE.get(img);
-    if (!entry) return;
-    STATE.delete(img);
-    if (entry.savedSrc !== undefined && restoreSrc) {
-      OWN_SRC.set(img, entry.savedSrc);
-      if (entry.savedSrcset !== null) img.setAttribute('srcset', entry.savedSrcset);
-      if (entry.savedSrc === null) img.removeAttribute('src');
-      else img.setAttribute('src', entry.savedSrc);
     }
-    if (entry.player) entry.player.destroy();
-    if (entry.observer) entry.observer.disconnect();
-    if (entry.host) entry.host.remove();
-    if ('webpPlayerHidden' in img.dataset) {
-      delete img.dataset.webpPlayerHidden;
+
+    // Shows the image again. The saved src comes back only while the
+    // blank is still in place and the image is still in the page. If the
+    // page set a new src or srcset, or removed the image, the page's
+    // choice stays.
+    restore() {
+      const img = this.img;
       img.style.removeProperty('display');
+      const blankInPlace = img.getAttribute('src') === BLANK && !img.hasAttribute('srcset');
+      if (!this.saved || !blankInPlace || !img.isConnected) return;
+      const { src, srcset } = this.saved;
+      OWN_SRC.set(img, src);
+      if (srcset !== null) img.setAttribute('srcset', srcset);
+      if (src === null) img.removeAttribute('src');
+      else img.setAttribute('src', src);
     }
   }
-
-  const PLAYER_HTML = `
-<style>
-  :host { all: initial; }
-  canvas { display: block; width: 100%; height: 100%; }
-  .bar {
-    position: absolute; left: 0; right: 0; bottom: 0;
-    display: flex; align-items: center; gap: 8px;
-    padding: 6px 8px; box-sizing: border-box;
-    background: linear-gradient(transparent, rgba(0,0,0,.65));
-    color: #fff; font: 12px/1 -apple-system, system-ui, sans-serif;
-    opacity: 0; transition: opacity .15s;
-    line-height: normal;
-  }
-  :host(:hover) .bar, .bar:focus-within { opacity: 1; }
-  @media (hover: none) { .bar { opacity: .85; } }
-  button {
-    all: unset; cursor: pointer; color: #fff;
-    min-width: 32px; height: 32px; text-align: center;
-    border-radius: 6px; font-size: 13px;
-  }
-  button:hover { background: rgba(255,255,255,.15); }
-  button:focus-visible { outline: 2px solid #fff; }
-  .scrub { flex: 1; min-width: 40px; margin: 0; accent-color: #fff; }
-  .label { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
-  .scrub:disabled { opacity: .35; cursor: default; }
-  /* Download progress: a thin line along the bottom edge. */
-  .loading {
-    position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
-    background: rgba(0,0,0,.25); pointer-events: none;
-    transition: opacity .4s;
-  }
-  .loading.done { opacity: 0; }
-  .fill {
-    height: 100%; background: rgba(255,255,255,.8);
-    transform-origin: left; transform: scaleX(0); transition: transform .2s;
-  }
-  @media (hover: none) { button { min-width: 44px; height: 44px; } }
-</style>
-<canvas></canvas>
-<div class="loading"><div class="fill"></div></div>
-<div class="bar">
-  <button class="play" aria-label="Pause">${PAUSE}</button>
-  <input class="scrub" type="range" min="0" max="0" value="0" aria-label="Frame" disabled>
-  <span class="label"></span>
-  <button class="speed" aria-label="Speed">1×</button>
-</div>`;
 
   // ---- Page scanning -----------------------------------------------------
 
   function scan(root) {
     if (root.tagName === 'IMG') inspect(root);
     if (root.querySelectorAll) root.querySelectorAll('img').forEach(inspect);
+  }
+
+  function imagesIn(node) {
+    if (node.nodeType !== 1) return [];
+    if (node.tagName === 'IMG') return [node];
+    return node.querySelectorAll('img');
   }
 
   function watch() {
@@ -346,15 +206,13 @@
           OWN_SRC.delete(img);
           // A changed src means a new image. Wait for the browser to pick
           // the URL up in currentSrc, then inspect it again.
-          if (STATE.has(img)) teardown(img, false);
+          teardown(img);
           if (img.complete) inspect(img);
           else img.addEventListener('load', () => inspect(img), { once: true });
         } else {
           m.addedNodes.forEach((n) => n.nodeType === 1 && scan(n));
           m.removedNodes.forEach((n) => {
-            if (n.nodeType !== 1) return;
-            const imgs = n.tagName === 'IMG' ? [n] : n.querySelectorAll ? n.querySelectorAll('img') : [];
-            imgs.forEach((img) => !img.isConnected && teardown(img, false));
+            for (const img of imagesIn(n)) if (!img.isConnected) teardown(img);
           });
         }
       }
@@ -367,7 +225,7 @@
   }
 
   function disableAll() {
-    document.querySelectorAll('img').forEach((img) => teardown(img));
+    document.querySelectorAll('img').forEach(teardown);
   }
 
   async function init() {

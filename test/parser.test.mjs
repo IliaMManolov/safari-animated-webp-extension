@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import vm from 'node:vm';
 
-const require = createRequire(import.meta.url);
-const WebPAnim = require('../extension/src/webp-parser.js');
+// Loads the parser the way the browser does, as a script that sets a
+// global.
+const context = vm.createContext({ Blob });
+vm.runInContext(readFileSync(new URL('../extension/src/webp-parser.js', import.meta.url), 'utf8'), context);
+const { WebPAnim } = context;
 const fixture = (name) => readFileSync(new URL('./.fixtures/' + name, import.meta.url));
 
 test('detects animated WebP from the header bytes', () => {
