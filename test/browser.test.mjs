@@ -179,7 +179,9 @@ test('playback starts before a slow download ends', async () => {
 
   await page.waitForSelector('webp-player');
   const early = await label();
-  assert.match(early, /\u2026$/, 'the label shows that frames are still loading: ' + early);
+  assert.match(early, /^Loading \d+%$/, 'the label shows the download progress: ' + early);
+  const scrubOff = () => page.evaluate(() => document.querySelector('webp-player').shadowRoot.querySelector('.scrub').disabled);
+  assert.equal(await scrubOff(), true, 'scrub bar is off while loading');
   // Safari's own copy of the download was stopped.
   assert.match(await page.evaluate(() => document.getElementById('img').getAttribute('src')), /^data:image\/gif/);
 
@@ -187,6 +189,7 @@ test('playback starts before a slow download ends', async () => {
     const t = document.querySelector('webp-player').shadowRoot.querySelector('.label').textContent;
     return /\/ 40$/.test(t);
   }, null, { timeout: 15000 });
+  assert.equal(await scrubOff(), false, 'scrub bar is on after loading');
 
   // Turning the site off puts the original src back.
   await page.evaluate(() => window.__storageListener({ ['disabled:' + location.hostname]: { newValue: true } }, 'local'));

@@ -104,8 +104,8 @@
         if (!entry.player && parser.anim.frames.length) {
           log(`playing while the file downloads (${parser.anim.width}x${parser.anim.height})`, url);
           mount(img, entry, parser.buffer, parser.anim);
-        } else if (added && entry.update) {
-          entry.update();
+        } else if (entry.update) {
+          entry.update(parser.length / parser.riffEnd);
         }
       }
     } catch (err) {
@@ -118,7 +118,7 @@
     if (parser.status !== 'animated' || !frames) return;
     log(`downloaded ${frames} frames` + (whole ? '' : ' (file incomplete, playing what arrived)'), url);
     if (!entry.player && frames > 1) mount(img, entry, parser.buffer, parser.anim);
-    else if (entry.update) entry.update();
+    else if (entry.update) entry.update(1);
   }
 
   // ---- Player UI ---------------------------------------------------------
@@ -166,10 +166,16 @@
     const scrub = shadow.querySelector('.scrub');
     const speedBtn = shadow.querySelector('.speed');
     const label = shadow.querySelector('.label');
-    scrub.max = String(anim.frames.length - 1);
+    const loading = shadow.querySelector('.loading');
+    const fill = shadow.querySelector('.fill');
+    let progress = 0;
 
+    // While the file downloads, the frame count still grows. The scrub
+    // bar stays off and the label shows the download progress instead.
     const showLabel = (index) => {
-      label.textContent = (index + 1) + ' / ' + anim.frames.length + (anim.complete ? '' : '\u2026');
+      label.textContent = anim.complete
+        ? (index + 1) + ' / ' + anim.frames.length
+        : 'Loading ' + Math.floor(progress * 100) + '%';
     };
     const player = new AnimatedWebPPlayer(canvas, bytes, anim, {
       onFrame(index) {
@@ -219,11 +225,19 @@
     });
     entry.player = player;
     entry.observer = observer;
-    // Called when more frames finish downloading.
-    entry.update = () => {
-      scrub.max = String(anim.frames.length - 1);
+    // Called while the file downloads, with the share of bytes received.
+    entry.update = (fraction) => {
+      progress = fraction;
+      fill.style.transform = 'scaleX(' + fraction + ')';
+      if (anim.complete) {
+        scrub.max = String(anim.frames.length - 1);
+        scrub.value = String(Math.max(player.current, 0));
+        scrub.disabled = false;
+        loading.classList.add('done');
+      }
       showLabel(Math.max(player.current, 0));
     };
+    entry.update(0);
 
     // Draw the first frame before the swap. The original image stays on
     // screen until then, so the page never shows an empty canvas.
@@ -291,13 +305,26 @@
   button:hover { background: rgba(255,255,255,.15); }
   button:focus-visible { outline: 2px solid #fff; }
   .scrub { flex: 1; min-width: 40px; margin: 0; accent-color: #fff; }
-  .label { min-width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+  .label { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
+  .scrub:disabled { opacity: .35; cursor: default; }
+  /* Download progress: a thin line along the bottom edge. */
+  .loading {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 2px;
+    background: rgba(0,0,0,.25); pointer-events: none;
+    transition: opacity .4s;
+  }
+  .loading.done { opacity: 0; }
+  .fill {
+    height: 100%; background: rgba(255,255,255,.8);
+    transform-origin: left; transform: scaleX(0); transition: transform .2s;
+  }
   @media (hover: none) { button { min-width: 44px; height: 44px; } }
 </style>
 <canvas></canvas>
+<div class="loading"><div class="fill"></div></div>
 <div class="bar">
   <button class="play" aria-label="Pause">${PAUSE}</button>
-  <input class="scrub" type="range" min="0" value="0" aria-label="Frame">
+  <input class="scrub" type="range" min="0" max="0" value="0" aria-label="Frame" disabled>
   <span class="label"></span>
   <button class="speed" aria-label="Speed">1×</button>
 </div>`;
