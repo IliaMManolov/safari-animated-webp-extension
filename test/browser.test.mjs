@@ -80,6 +80,12 @@ test('dispose-to-background and lossless alpha match libwebp', async () => {
   assertClose(await page.evaluate((o) => checkOrder('alpha', o), order));
 });
 
+test('seeking while playing keeps playing', async () => {
+  const page = await playerPage();
+  const result = await page.evaluate(() => seekWhilePlaying('heavy'));
+  assert.deepEqual(result, { landed: 10, playing: true, advanced: true, stateChanges: 0 });
+});
+
 test('reports decode time per frame', async () => {
   const page = await playerPage();
   const ms = await page.evaluate(() => timeSequential('heavy'));
@@ -103,7 +109,7 @@ test('content script swaps in the player and leaves other images alone', async (
       }
     }).observe(document.body, { subtree: true, childList: true });
   });
-  for (const src of ['webp-parser.js', 'player.js', 'content.js']) {
+  for (const src of ['settings.js', 'webp-parser.js', 'player.js', 'view.js', 'content.js']) {
     await page.addScriptTag({ url: '/extension/src/' + src });
   }
   await page.waitForSelector('webp-player');
@@ -169,7 +175,7 @@ test('playback starts before a slow download ends', async () => {
   await page.evaluate(() => {
     document.getElementById('img').src = '/slow/test/.fixtures/heavy.webp';
   });
-  for (const src of ['webp-parser.js', 'player.js', 'content.js']) {
+  for (const src of ['settings.js', 'webp-parser.js', 'player.js', 'view.js', 'content.js']) {
     await page.addScriptTag({ url: '/extension/src/' + src });
   }
   const label = () => page.evaluate(() => {

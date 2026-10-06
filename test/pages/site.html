@@ -8,7 +8,14 @@
       local: { get: async () => ({}) },
       onChanged: { addListener(fn) { window.__storageListener = fn; } },
     },
-    runtime: { sendMessage: async () => ({ error: 'no background in test' }) },
+    runtime: {
+      connect: () => ({
+        onMessage: { addListener() {} },
+        onDisconnect: { addListener(fn) { setTimeout(fn); } },
+        postMessage() {},
+        disconnect() {},
+      }),
+    },
   };
 </script>
 <div id="i3">

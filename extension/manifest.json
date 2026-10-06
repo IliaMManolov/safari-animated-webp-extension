@@ -23,7 +23,7 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/webp-parser.js", "src/player.js", "src/content.js"],
+      "js": ["src/settings.js", "src/webp-parser.js", "src/player.js", "src/view.js", "src/content.js"],
       "run_at": "document_idle"
     }
   ],

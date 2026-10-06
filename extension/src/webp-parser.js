@@ -40,17 +40,23 @@
       (bytes[20] & ANIMATION_FLAG) !== 0;
   }
 
+  // Reads the chunk header at offset. `next` is the offset of the chunk
+  // after it: chunk data is padded to an even size.
+  function readChunk(bytes, offset) {
+    const id = fourcc(bytes, offset);
+    const size = u32(bytes, offset + 4);
+    const dataStart = offset + 8;
+    const dataEnd = dataStart + size;
+    return { id, offset, dataStart, dataEnd, next: dataEnd + (size & 1) };
+  }
+
   // Iterates the chunks in bytes[start, end).
   function* chunks(bytes, start, end) {
-    let offset = start;
-    while (offset + 8 <= end) {
-      const id = fourcc(bytes, offset);
-      const size = u32(bytes, offset + 4);
-      const dataStart = offset + 8;
-      const dataEnd = dataStart + size;
-      if (dataEnd > end) throw new Error('Truncated WebP chunk ' + id);
-      yield { id, offset, dataStart, dataEnd };
-      offset = dataEnd + (size & 1);
+    for (let offset = start; offset + 8 <= end;) {
+      const chunk = readChunk(bytes, offset);
+      if (chunk.dataEnd > end) throw new Error('Truncated WebP chunk ' + chunk.id);
+      yield chunk;
+      offset = chunk.next;
     }
   }
 
@@ -60,8 +66,11 @@
   }
 
   // Parses an animated WebP while it downloads. Call push() with each
-  // block of bytes as it arrives. Each frame appears in anim.frames as
-  // soon as all of its bytes are in, so playback can start early.
+  // block of bytes as it arrives, and finish() when the download ends.
+  //
+  // `anim` is shared with the player and grows in place: each frame
+  // appears in anim.frames as soon as all of its bytes are in, and
+  // anim.complete turns true in finish(). So playback can start early.
   class StreamParser {
     constructor() {
       this.status = 'pending'; // 'pending' | 'animated' | 'not-animated'
@@ -74,23 +83,21 @@
         width: 0,
         height: 0,
         loopCount: 0,
-        backgroundColor: 0,
         frames: [],
         complete: false,
       };
     }
 
-    // Returns the number of new frames.
     push(chunk) {
-      if (this.status === 'not-animated') return 0;
+      if (this.status === 'not-animated') return;
       if (!this.buffer) {
         for (const b of chunk) this.head.push(b);
-        if (this.head.length < 21) return 0;
+        if (this.head.length < 21) return;
         const head = Uint8Array.from(this.head);
         this.head = null;
         if (!isAnimatedWebP(head)) {
           this.status = 'not-animated';
-          return 0;
+          return;
         }
         this.status = 'animated';
         this.riffEnd = 8 + u32(head, 4);
@@ -101,35 +108,35 @@
       const part = chunk.length > room ? chunk.subarray(0, room) : chunk;
       this.buffer.set(part, this.length);
       this.length += part.length;
-      return this.scan();
+      this.scan();
     }
 
+    // The share of the file that has arrived, from 0 to 1.
+    get progress() {
+      return this.riffEnd ? this.length / this.riffEnd : 0;
+    }
+
+    // Reads every chunk that has fully arrived.
     scan() {
       const bytes = this.buffer;
-      const before = this.anim.frames.length;
       while (this.pos + 8 <= this.length) {
-        const id = fourcc(bytes, this.pos);
-        const size = u32(bytes, this.pos + 4);
-        const dataStart = this.pos + 8;
-        const dataEnd = dataStart + size;
-        if (dataEnd > this.riffEnd) throw new Error('WebP chunk ' + id + ' runs past the end of the file');
-        if (dataEnd > this.length) break;
-        const chunk = { id, offset: this.pos, dataStart, dataEnd };
-        if (id === 'VP8X') {
-          this.anim.width = u24(bytes, dataStart + 4) + 1;
-          this.anim.height = u24(bytes, dataStart + 7) + 1;
-        } else if (id === 'ANIM') {
-          this.anim.backgroundColor = u32(bytes, dataStart);
-          this.anim.loopCount = bytes[dataStart + 4] | (bytes[dataStart + 5] << 8);
-        } else if (id === 'ANMF') {
+        const chunk = readChunk(bytes, this.pos);
+        if (chunk.dataEnd > this.riffEnd) throw new Error('WebP chunk ' + chunk.id + ' runs past the end of the file');
+        if (chunk.dataEnd > this.length) break;
+        const d = chunk.dataStart;
+        if (chunk.id === 'VP8X') {
+          this.anim.width = u24(bytes, d + 4) + 1;
+          this.anim.height = u24(bytes, d + 7) + 1;
+        } else if (chunk.id === 'ANIM') {
+          this.anim.loopCount = bytes[d + 4] | (bytes[d + 5] << 8);
+        } else if (chunk.id === 'ANMF') {
           const frames = this.anim.frames;
           const frame = parseFrame(bytes, chunk, frames.length);
           frame.keyFrame = isKeyFrame(this.anim, frame, frames[frames.length - 1]);
           frames.push(frame);
         }
-        this.pos = dataEnd + (size & 1);
+        this.pos = chunk.next;
       }
-      return this.anim.frames.length - before;
     }
 
     // Call when the download ends. Returns true when the whole file arrived.
@@ -139,12 +146,12 @@
     }
   }
 
-  // Parses a whole animated WebP. Returns null for a still or non-WebP file.
-  function parseAnimatedWebP(buffer) {
-    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    if (!isAnimatedWebP(bytes)) return null;
+  // Parses a whole animated WebP from a Uint8Array. Returns null for a
+  // still or non-WebP file.
+  function parseAnimatedWebP(bytes) {
     const parser = new StreamParser();
     parser.push(bytes);
+    if (parser.status !== 'animated') return null;
     if (!parser.finish()) throw new Error('Truncated WebP file');
     return parser.anim.frames.length ? parser.anim : null;
   }
@@ -153,7 +160,6 @@
     const d = chunk.dataStart;
     const flags = bytes[d + 15];
     const frame = {
-      index,
       x: u24(bytes, d) * 2,
       y: u24(bytes, d + 3) * 2,
       width: u24(bytes, d + 6) + 1,
@@ -189,12 +195,12 @@
     return prev.disposeToBackground && (full(prev) || prev.keyFrame);
   }
 
-  // Builds a standalone still WebP Blob for one frame. Uses subarrays of
-  // the original file, so the frame bytes are not copied.
-  function frameToBlob(buffer, frame) {
-    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+  // Builds a standalone still WebP Blob for one frame of `bytes` (the
+  // whole file). Uses subarrays of the file, so the frame bytes are not
+  // copied.
+  function frameToBlob(bytes, frame) {
     const image = frame.image;
-    const imageChunk = bytes.subarray(image.offset, image.dataEnd + ((image.dataEnd - image.dataStart) & 1));
+    const imageChunk = bytes.subarray(image.offset, image.next);
 
     if (!frame.alph) {
       const header = new Uint8Array(12);
@@ -205,7 +211,7 @@
     }
 
     const alph = frame.alph;
-    const alphChunk = bytes.subarray(alph.offset, alph.dataEnd + ((alph.dataEnd - alph.dataStart) & 1));
+    const alphChunk = bytes.subarray(alph.offset, alph.next);
     const header = new Uint8Array(30);
     header.set([0x52, 0x49, 0x46, 0x46], 0); // RIFF
     writeU32(header, 4, 4 + 18 + alphChunk.length + imageChunk.length);
@@ -218,7 +224,5 @@
     return new Blob([header, alphChunk, imageChunk], { type: 'image/webp' });
   }
 
-  const api = { isAnimatedWebP, parseAnimatedWebP, frameToBlob, StreamParser };
-  if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  else root.WebPAnim = api;
-})(typeof globalThis !== 'undefined' ? globalThis : this);
+  root.WebPAnim = { isAnimatedWebP, parseAnimatedWebP, frameToBlob, StreamParser };
+})(globalThis);

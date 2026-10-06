@@ -19,7 +19,7 @@ The likely cause is the decoder work for each frame and the memory for all frame
 1. The content script finds `<img>` elements with a WebP URL, for example a URL that ends in `.webp`.
 2. It starts its own download of the file and reads the header from the first bytes. If the header has no animation flag, it stops the download and leaves the image alone.
 3. `src/webp-parser.js` reads the frames while the file downloads. It packs each frame as a separate still WebP file.
-4. When the first frame is in, the player draws it and replaces the image. The rest of the frames load while the player plays. If playback reaches a frame that is not in yet, the player waits for it.
+4. When the first frame is in, the player draws it and replaces the image. `src/view.js` builds the player element and its controls. The rest of the frames load while the player plays. If playback reaches a frame that is not in yet, the player waits for it.
 5. `src/player.js` decodes each still frame with `createImageBitmap`. The browser decodes these off the main thread. The player then draws the frames on a canvas in order and applies the blend and dispose rules of the WebP format.
 6. The player keeps a decoded frame only until it draws it. It decodes a maximum of 6 frames ahead, at about 3 MB each for the test file.
 

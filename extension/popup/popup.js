@@ -36,7 +36,7 @@ async function main() {
   show('main');
   const toggle = document.getElementById('toggle');
   document.getElementById('site').textContent = host;
-  const key = 'disabled:' + host;
+  const key = WebPSettings.siteKey(host);
   const stored = await ext.storage.local.get(key);
   toggle.checked = !stored[key];
   toggle.addEventListener('change', () => {
