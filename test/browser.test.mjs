@@ -86,6 +86,14 @@ test('seeking while playing keeps playing', async () => {
   assert.deepEqual(result, { landed: 10, playing: true, advanced: true, stateChanges: 0 });
 });
 
+test('each frame is packaged once, however many loops play', async () => {
+  const page = await playerPage();
+  const r = await page.evaluate(() => blobsOverTwoLoops('heavy'));
+  assert.equal(r.built, r.frames);
+  assert.equal(r.bufferFreed, true, 'the file bytes are let go once every frame has a Blob');
+  assert.ok(r.decodes <= 7, 'decoded frames stay few: ' + r.decodes);
+});
+
 test('reports decode time per frame', async () => {
   const page = await playerPage();
   const ms = await page.evaluate(() => timeSequential('heavy'));
