@@ -1,0 +1,37 @@
+WebP Player App Store exception
+
+Copyright (C) 2026 Ilia Manolov and the WebP Player contributors
+
+WebP Player is free software: you can redistribute it and/or modify it
+under the terms of the GNU General Public License version 3 as published
+by the Free Software Foundation (the "GPL"). The full text of the GPL is
+in the LICENSE file.
+
+
+Additional permission under GNU GPL version 3 section 7
+
+As an additional permission under section 7 of the GPL, the copyright
+holders of WebP Player give you permission to convey WebP Player, or a
+work based on it, in object code form through an app distribution service
+that Apple Inc. operates, for example the App Store, the Mac App Store and
+TestFlight. You may accept and comply with the terms that Apple applies
+to that distribution, for example the Apple Media Services Terms and
+Conditions, the App Store usage rules, the standard Licensed Application
+End User License Agreement, code signing and digital rights management.
+This permission applies also where those terms put further restrictions
+on recipients that the GPL does not otherwise allow.
+
+This permission applies only if both of these conditions are true:
+
+  a) The Corresponding Source of the version that you convey is available
+     to the public at no charge, under the GPL with this permission, from
+     a network server. You give clear directions to find it next to the
+     place where the app is offered, for example in the app's description
+     or on its support page.
+
+  b) You do not use this permission to limit the rights that the GPL
+     gives to any recipient of the Corresponding Source.
+
+If you modify WebP Player, you may extend this permission to your version,
+but you are not required to do so. If you do not want to extend it, delete
+this permission statement from your version.
