@@ -202,3 +202,54 @@ test('playback starts before a slow download ends', async () => {
   assert.equal(await page.evaluate(() => document.getElementById('img').getAttribute('src')), '/slow/test/.fixtures/heavy.webp');
   assert.equal(await page.evaluate(() => document.querySelectorAll('webp-player').length), 0);
 });
+
+test('on a touch screen the controls open from the corner button', async () => {
+  const context = await browser.newContext({ isMobile: true, hasTouch: true, viewport: { width: 800, height: 1200 } });
+  const page = await context.newPage();
+  await page.goto(base + '/test/pages/site.html');
+  assert.equal(await page.evaluate(() => matchMedia('(hover: none)').matches), true);
+  // A second animated image, to check that only one bar opens at a time.
+  await page.evaluate(() => {
+    const a = document.createElement('a');
+    a.href = '#second';
+    a.innerHTML = '<img id="img2" src="/test/.fixtures/alpha.webp">';
+    document.body.append(a);
+  });
+  for (const src of ['settings.js', 'webp-parser.js', 'player.js', 'view.js', 'content.js']) {
+    await page.addScriptTag({ url: '/extension/src/' + src });
+  }
+  await page.waitForFunction(() => document.querySelectorAll('webp-player').length === 2);
+
+  const bars = () => page.evaluate(() => [...document.querySelectorAll('webp-player')].map((h) => {
+    const bar = h.shadowRoot.querySelector('.bar');
+    const cs = getComputedStyle(bar);
+    return cs.opacity === '1' && cs.pointerEvents !== 'none';
+  }));
+  const tapToggle = (i) => page.evaluate((i) => {
+    document.querySelectorAll('webp-player')[i].shadowRoot.querySelector('.toggle').click();
+  }, i);
+
+  // The bars start hidden, and a tap on the picture follows the link.
+  assert.deepEqual(await bars(), [false, false]);
+  await page.tap('webp-player', { position: { x: 100, y: 500 } });
+  assert.equal(await page.evaluate(() => location.hash), '#navigated');
+  await page.evaluate(() => { location.hash = ''; });
+  await page.waitForTimeout(200);
+  assert.deepEqual(await bars(), [false, false], 'a tap on the picture does not open the bar');
+
+  // The corner button opens the bar and does not follow the link.
+  await tapToggle(0);
+  await page.waitForTimeout(200);
+  assert.deepEqual(await bars(), [true, false]);
+  assert.equal(await page.evaluate(() => location.hash), '');
+
+  // Opening the second bar closes the first.
+  await tapToggle(1);
+  await page.waitForTimeout(200);
+  assert.deepEqual(await bars(), [false, true]);
+
+  // The bar closes on its own after a few seconds.
+  await page.waitForTimeout(4300);
+  assert.deepEqual(await bars(), [false, false]);
+  await context.close();
+});

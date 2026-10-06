@@ -7,8 +7,16 @@
   const PLAY = '▶';
   const PAUSE = '❚❚';
 
-  // The control bar sits inside the page's links. These events stop at
-  // the bar so that the controls do not follow the link.
+  // On a touch screen, an open control bar closes after this much time
+  // without a touch on it.
+  const AUTO_HIDE_MS = 4000;
+
+  // On a touch screen, the one view whose control bar is open.
+  let openView = null;
+
+  // The controls sit inside the page's links. These events stop at the
+  // control bar and the controls button, so that they do not follow the
+  // link.
   const BAR_EVENTS = ['click', 'mousedown', 'mouseup', 'pointerdown', 'pointerup', 'touchstart', 'touchend', 'dblclick'];
 
   const HTML = `
@@ -24,15 +32,35 @@
     opacity: 0; transition: opacity .15s;
     line-height: normal;
   }
-  :host(:hover) .bar, .bar:focus-within { opacity: 1; }
-  @media (hover: none) { .bar { opacity: .85; } }
   button {
     all: unset; cursor: pointer; color: #fff;
     min-width: 32px; height: 32px; text-align: center;
     border-radius: 6px; font-size: 13px;
   }
-  button:hover { background: rgba(255,255,255,.15); }
   button:focus-visible { outline: 2px solid #fff; }
+  /* With a pointer, the bar shows on hover. iOS keeps an element in the
+     hover state after a tap, so touch screens do not use these rules. */
+  @media (hover: hover) {
+    :host(:hover) .bar, .bar:focus-within { opacity: 1; }
+    button:hover { background: rgba(255,255,255,.15); }
+  }
+  /* On a touch screen, a tap on the picture follows the page's link, so
+     the bar opens from a small button in the top right corner. */
+  .toggle { display: none; }
+  @media (hover: none) {
+    .bar { pointer-events: none; }
+    .bar.open { opacity: 1; pointer-events: auto; }
+    .toggle {
+      display: flex; align-items: center; justify-content: center;
+      position: absolute; top: 4px; right: 4px;
+      width: 44px; min-width: 44px; height: 44px;
+    }
+    .toggle svg {
+      width: 16px; height: 16px; padding: 6px; border-radius: 50%;
+      background: rgba(0,0,0,.45); transition: background .15s;
+    }
+    .toggle[aria-expanded="true"] svg { background: rgba(0,0,0,.75); }
+  }
   .scrub { flex: 1; min-width: 40px; margin: 0; accent-color: #fff; }
   .label { min-width: 72px; text-align: right; font-variant-numeric: tabular-nums; }
   .scrub:disabled { opacity: .35; cursor: default; }
@@ -51,6 +79,12 @@
 </style>
 <canvas></canvas>
 <div class="loading"><div class="fill"></div></div>
+<button class="toggle" aria-label="Player controls" aria-expanded="false">
+  <svg viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" aria-hidden="true">
+    <path d="M2 4h12M2 8h12M2 12h12"/>
+    <circle cx="5" cy="4" r="1.6" fill="#000"/><circle cx="11" cy="8" r="1.6" fill="#000"/><circle cx="7" cy="12" r="1.6" fill="#000"/>
+  </svg>
+</button>
 <div class="bar">
   <button class="play" aria-label="Pause">${PAUSE}</button>
   <input class="scrub" type="range" min="0" max="0" value="0" aria-label="Frame" disabled>
@@ -85,6 +119,8 @@
       shadow.innerHTML = HTML;
       const $ = (selector) => shadow.querySelector(selector);
       this.bar = $('.bar');
+      this.toggleBtn = $('.toggle');
+      this.hideTimer = 0;
       this.playBtn = $('.play');
       this.scrub = $('.scrub');
       this.speedBtn = $('.speed');
@@ -131,12 +167,19 @@
 
     wireControls() {
       const player = this.player;
-      for (const type of BAR_EVENTS) {
-        this.bar.addEventListener(type, (e) => {
-          e.stopPropagation();
-          if (type === 'click' || type === 'dblclick') e.preventDefault();
-        });
+      for (const el of [this.bar, this.toggleBtn]) {
+        for (const type of BAR_EVENTS) {
+          el.addEventListener(type, (e) => {
+            e.stopPropagation();
+            if (type === 'click' || type === 'dblclick') e.preventDefault();
+          });
+        }
       }
+      this.toggleBtn.addEventListener('click', () => this.setControlsOpen(!this.controlsOpen));
+      // A touch on the open bar keeps it open for longer.
+      this.bar.addEventListener('pointerdown', () => {
+        if (this.controlsOpen) this.scheduleHide();
+      });
       this.playBtn.addEventListener('click', () => player.toggle());
       this.speedBtn.addEventListener('click', () => player.cycleSpeed());
 
@@ -153,6 +196,7 @@
         if (!this.scrubbing) return;
         this.scrubbing = false;
         if (wasPlaying) player.play();
+        if (this.controlsOpen) this.scheduleHide();
       };
       this.scrub.addEventListener('change', endScrub);
       this.scrub.addEventListener('pointerup', endScrub);
@@ -204,7 +248,36 @@
       this.speedBtn.textContent = this.player.speed + '×';
     }
 
+    get controlsOpen() {
+      return this.bar.classList.contains('open');
+    }
+
+    // Opens or closes the control bar on a touch screen. Only one player
+    // has an open bar at a time.
+    setControlsOpen(open) {
+      clearTimeout(this.hideTimer);
+      if (open && openView && openView !== this) openView.setControlsOpen(false);
+      this.bar.classList.toggle('open', open);
+      this.toggleBtn.setAttribute('aria-expanded', String(open));
+      if (open) {
+        openView = this;
+        this.scheduleHide();
+      } else if (openView === this) {
+        openView = null;
+      }
+    }
+
+    // Closes the bar after AUTO_HIDE_MS, but not during a scrub.
+    scheduleHide() {
+      clearTimeout(this.hideTimer);
+      this.hideTimer = setTimeout(() => {
+        if (this.scrubbing) this.scheduleHide();
+        else this.setControlsOpen(false);
+      }, AUTO_HIDE_MS);
+    }
+
     destroy() {
+      this.setControlsOpen(false);
       this.player.destroy();
       this.observer.disconnect();
       this.host.remove();

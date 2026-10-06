@@ -27,7 +27,7 @@ If Safari is still downloading the original image when the player starts, the ex
 
 If the page's CORS rules block the content script's download, `background.js` downloads the file and sends it to the content script in pieces.
 
-The original `<img>` stays in the page, hidden, so the page scripts can still use it. The player sits in the same place, inside the same link. A click on the picture follows the link. A click on the controls does not.
+The original `<img>` stays in the page, hidden, so the page scripts can still use it. The player sits in the same place, inside the same link. A click on the picture follows the link. A click on the controls or on the controls button does not.
 
 If the browser cannot decode a frame, the extension removes the player and shows the original image again.
 
@@ -58,7 +58,7 @@ The Xcode project uses the `extension` folder in place. After you change a file 
 3. Click Run.
 4. On the iPhone, open Settings > Apps > Safari > Extensions. Turn on WebP Player and allow it on all websites.
 
-On iOS the controls are always visible, because there is no pointer hover.
+On iOS there is no pointer hover, so the controls stay hidden. A small round button in the top right corner of each player opens the control bar. A tap on the picture itself still follows the page's link. Only one player shows its bar at a time, and the bar closes after 4 seconds without a touch.
 
 ## Tests
 
